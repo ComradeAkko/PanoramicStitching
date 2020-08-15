@@ -11,14 +11,77 @@ import os
 def ssExtremaDetect(imgPath):
     img = mpimg.imread(imgPath)
     img = grayScale(img)
-    imgs = gaussPyramid(img, 4, 2, 0.5)
-    #imgs = diffGaussPyramid(imgs)
+    imgs = gaussPyramid(img, 4, 3, 0.5)
+    imgs = diffGaussPyramid(imgs)
 
+    can = 0
+    # for i in range(len(imgs)):
+    #     for j in range(len(imgs[i])):
+    #         plt.imshow(imgs[i][j], cmap='gray')
+    #         plt.show()
     for i in range(len(imgs)):
-        for j in range(len(imgs[i])):
-            plt.imshow(imgs[i][j], cmap='gray')
-            plt.show()
+        print("octave " + str(i))
+        can += len(candidateOctave(imgs[i]))
+    print(can)
 
+# returns the octave's candidate points
+def candidateOctave(oct):
+    candidates = []
+    imgRow, imgCol = oct[0].shape 
+    for i in range(1,len(oct)-1):
+        print(i)
+        for j in range(1, imgRow-1):
+            for k in range(1, imgCol-1):
+                aboveMx = np.max(oct[i+1][j-1:j+2, k-1:k+2])
+                aboveMn = np.min(oct[i+1][j-1:j+2, k-1:k+2])
+                belowMx = np.max(oct[i-1][j-1:j+2, k-1:k+2])
+                belowMn = np.min(oct[i-1][j-1:j+2, k-1:k+2])
+                # currTopMx = np.max(oct[i][j-1, k-1:k+2])
+                # currTopMn = np.min(oct[i][j-1, k-1:k+2])
+                # currTopMx = np.max(oct[i][j+1, k-1:k+2])
+                # currBlwMn = np.min(oct[i][j+1, k-1:k+2])
+
+                currMx =  np.max(oct[i][j-1:j+2, k-1:k+2])
+                currMn =  np.min(oct[i][j-1:j+2, k-1:k+2])
+
+                # print(" ")
+                # print(max([aboveMx, belowMx, currTopMx, currTopMx]))
+                # print(min([aboveMn, belowMn, currTopMn, currBlwMn]))
+                # print(oct[i][j,k])
+                # print(" ")
+                # compare it to all neighboring pixels and scales
+                # print("")
+                # print(oct[i+1][j-1:j+2, k-1:k+2])
+                # print(oct[i][j-1:j+2, k-1:k+2])
+                # print(oct[i-1][j-1:j+2, k-1:k+2])
+                # print("")
+                # if (
+                #         oct[i][j,k] > aboveMx and 
+                #         oct[i][j,k] > belowMx and 
+                #         oct[i][j,k] > currTopMx and
+                #         oct[i][j,k] > currBlwMx and
+                #         oct[i][j,k] > oct[i][j,k-1] and
+                #         oct[i][j,k] > oct[i][j,k+1]
+                #     ) or (
+                #         oct[i][j,k] < aboveMn and 
+                #         oct[i][j,k] < belowMn and 
+                #         oct[i][j,k] < currTopMn and
+                #         oct[i][j,k] < currBlwMn and
+                #         oct[i][j,k] < oct[i][j,k-1] and
+                #         oct[i][j,k] < oct[i][j,k+1]
+                #     ):
+                #     candidates.append([i,j,k])
+                #     print("yes")
+                # print("")
+                # print(max([aboveMx, belowMx, currMx]))
+                # print(min([aboveMn, belowMn, currMn]))
+                # print(oct[i][j,k])
+                # print("")
+                if max([aboveMx, belowMx, currMx]) == oct[i][j,k] or min([aboveMn, belowMn, currMn]) == oct[i][j,k]:
+                    candidates.append([i,j,k])
+                    print("yes")
+    return candidates
+    
 # calculate the difference of gaussians in each octave
 def diffGaussPyramid(pyramid):
     diffPyramid = []
@@ -28,7 +91,7 @@ def diffGaussPyramid(pyramid):
         oct = pyramid[i]
         diffOct = []
         for j in range(len(oct)-1):
-            diffOct.append(oct[j+1] - oct[j])
+            diffOct.append(oct[j] - oct[j+1])
         diffPyramid.append(diffOct)
 
     return diffPyramid
