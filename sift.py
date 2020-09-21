@@ -6,7 +6,7 @@ import numpy as np
 import sys
 import math
 import os
-
+    
 # scale-space extrema detection
 def ssExtremaDetect(imgPath):
     img = mpimg.imread(imgPath)
@@ -79,7 +79,6 @@ def candidateOctave(oct):
                 # print("")
                 if max([aboveMx, belowMx, currMx]) == oct[i][j,k] or min([aboveMn, belowMn, currMn]) == oct[i][j,k]:
                     candidates.append([i,j,k])
-                    print("yes")
     return candidates
     
 # calculate the difference of gaussians in each octave
@@ -90,6 +89,7 @@ def diffGaussPyramid(pyramid):
     for i in range(len(pyramid)):
         oct = pyramid[i]
         diffOct = []
+        print(len(oct))
         for j in range(len(oct)-1):
             diffOct.append(oct[j] - oct[j+1])
         diffPyramid.append(diffOct)
@@ -120,15 +120,14 @@ def gaussOctave(img, s, sd):
 
     # the scalar to scale sd via intervals
     k = 2**(1/s)
-    
-    # get the gaussian kernel
-    g = kernel(k * sd)
 
     currImg = img
+    currSD = k*sd
     # get the remaining s+2 intervals as the paper describes
     # and convolve them incrementally with the kernel
     for i in range(s+2):
-        nInterval = convolve(currImg, g)
+        nInterval = convolve(img,  kernel(currSD))
+        currSD = math.sqrt((k*currSD)**2 - currSD**2)
         octave.append(nInterval)
         currImg = nInterval
         
@@ -184,6 +183,7 @@ def convolve(img, filterArray):
     for i in range(imgRow):
         for j in range(imgCol):
             result[i,j] = np.sum(filterArray * padImg[i:i+fRow, j:j+fCol])
+            # result[i,j] = np.sum(filterArray * padImg[i-fRow//2:i+fRow//2, j-fCol//2:j+fCol//2])
 
     return result
 
