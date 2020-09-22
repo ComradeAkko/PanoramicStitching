@@ -13,70 +13,36 @@ def ssExtremaDetect(imgPath):
     img = grayScale(img)
     imgs = gaussPyramid(img, 4, 3, 0.5)
     imgs = diffGaussPyramid(imgs)
+    candidates = candidatePyramid(imgs)
 
-    can = 0
-    # for i in range(len(imgs)):
-    #     for j in range(len(imgs[i])):
-    #         plt.imshow(imgs[i][j], cmap='gray')
-    #         plt.show()
-    for i in range(len(imgs)):
-        print("octave " + str(i))
-        can += len(candidateOctave(imgs[i]))
-    print(can)
+# returns qualified keypoints that are localized, not low contrast, and not on an edge
+def findPyramidKeypoints(candidates, pyramid):
+    pyraKeys = []
+
+    return pyraKeys
+
+# returns the total keypoint candidates of the DoG pyramid
+def candidatePyramid(pyramid):
+    totalCandidates = []
+    for i in range(len(pyramid)):
+        totalCandidates.append(candidateOctave(pyramid[i]))
+    return totalCandidates
 
 # returns the octave's candidate points
 def candidateOctave(oct):
     candidates = []
     imgRow, imgCol = oct[0].shape 
     for i in range(1,len(oct)-1):
-        print(i)
         for j in range(1, imgRow-1):
             for k in range(1, imgCol-1):
                 aboveMx = np.max(oct[i+1][j-1:j+2, k-1:k+2])
                 aboveMn = np.min(oct[i+1][j-1:j+2, k-1:k+2])
                 belowMx = np.max(oct[i-1][j-1:j+2, k-1:k+2])
                 belowMn = np.min(oct[i-1][j-1:j+2, k-1:k+2])
-                # currTopMx = np.max(oct[i][j-1, k-1:k+2])
-                # currTopMn = np.min(oct[i][j-1, k-1:k+2])
-                # currTopMx = np.max(oct[i][j+1, k-1:k+2])
-                # currBlwMn = np.min(oct[i][j+1, k-1:k+2])
 
                 currMx =  np.max(oct[i][j-1:j+2, k-1:k+2])
                 currMn =  np.min(oct[i][j-1:j+2, k-1:k+2])
 
-                # print(" ")
-                # print(max([aboveMx, belowMx, currTopMx, currTopMx]))
-                # print(min([aboveMn, belowMn, currTopMn, currBlwMn]))
-                # print(oct[i][j,k])
-                # print(" ")
-                # compare it to all neighboring pixels and scales
-                # print("")
-                # print(oct[i+1][j-1:j+2, k-1:k+2])
-                # print(oct[i][j-1:j+2, k-1:k+2])
-                # print(oct[i-1][j-1:j+2, k-1:k+2])
-                # print("")
-                # if (
-                #         oct[i][j,k] > aboveMx and 
-                #         oct[i][j,k] > belowMx and 
-                #         oct[i][j,k] > currTopMx and
-                #         oct[i][j,k] > currBlwMx and
-                #         oct[i][j,k] > oct[i][j,k-1] and
-                #         oct[i][j,k] > oct[i][j,k+1]
-                #     ) or (
-                #         oct[i][j,k] < aboveMn and 
-                #         oct[i][j,k] < belowMn and 
-                #         oct[i][j,k] < currTopMn and
-                #         oct[i][j,k] < currBlwMn and
-                #         oct[i][j,k] < oct[i][j,k-1] and
-                #         oct[i][j,k] < oct[i][j,k+1]
-                #     ):
-                #     candidates.append([i,j,k])
-                #     print("yes")
-                # print("")
-                # print(max([aboveMx, belowMx, currMx]))
-                # print(min([aboveMn, belowMn, currMn]))
-                # print(oct[i][j,k])
-                # print("")
                 if max([aboveMx, belowMx, currMx]) == oct[i][j,k] or min([aboveMn, belowMn, currMn]) == oct[i][j,k]:
                     candidates.append([i,j,k])
     return candidates
@@ -116,15 +82,22 @@ def gaussPyramid(img, oct, s, sd):
 def gaussOctave(img, s, sd):
     # start the octave off with the original image
     octave = []
-    octave.append(img)
 
     # the scalar to scale sd via intervals
     k = 2**(1/s)
 
+    # apply and append the first level of blur
+    octave.append(convolve(img, kernel(sd)))
     currImg = img
     currSD = k*sd
+
     # get the remaining s+2 intervals as the paper describes
-    # and convolve them incrementally with the kernel
+    # and convolve the original with kernels that are gradually incremented
+    # until the blurring is effectively doubled, plus more for later use
+
+    ###############################################################################################
+    # WRITE MORE ABOUT WHY +2 MORE INTERVALS FOR LEARNING PURPOSES
+    ###############################################################################################
     for i in range(s+2):
         nInterval = convolve(img,  kernel(currSD))
         currSD = math.sqrt((k*currSD)**2 - currSD**2)
@@ -138,7 +111,6 @@ def gaussOctave(img, s, sd):
 #     because it's based on sd instead of rigid size
 def kernel(sd):
     lim = math.ceil(3*sd)
-    size = 2*lim + 1
     x, y = np.mgrid[-lim:lim+1, -lim:lim+1]
     k = 1/math.sqrt(2*math.pi*sd**2) * np.exp(-(x**2 + y**2)/(2*sd**2))
     return k/np.sum(k)
