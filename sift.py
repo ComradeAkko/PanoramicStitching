@@ -73,7 +73,7 @@ def findOctaveKeypoints(octCandidates, oct):
             z += int(round(offset[2]))
 
             # if the offset is out of bounds, skip it
-            if x < 0 or x >= imgRow-1 or y < 0 or y >= imgCol-1 or z < 1 or z >= len(oct)-1:
+            if x < 1 or x >= imgRow-1 or y < 1 or y >= imgCol-1 or z < 1 or z >= len(oct)-1:
                 outofBounds = True
                 break
         
