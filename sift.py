@@ -8,13 +8,102 @@ import math
 import os
     
 # scale-space extrema detection
-def ssExtremaDetect(imgPath):
+def sift(imgPath):
+    sigma = 0.5
+    numInterval = 3
     img = mpimg.imread(imgPath)
     img = grayScale(img)
-    imgs = gaussPyramid(img, 4, 3, 0.5)
+    imgs = gaussPyramid(img, 4, numInterval, sigma)
     imgs = diffGaussPyramid(imgs)
     candidates = candidatePyramid(imgs)
     keypoints = findPyramidKeypoints(candidates, imgs)
+    orientedKeys = assignPryaOri(keypoints, imgs, numInterval, sigma)
+
+# assigns orientations to keypoints 
+def assignPryaOri(keypoints, pyramid, s, sd):
+    oriKeys = []
+    # for each keypoint array for each octave
+    for i in range(len(keypoints)):
+        for j in range(len(keypoints[i])):
+            # extract the point
+            point = keypoints[i][j]
+            xP = point[0]
+            yP = point[1]
+            zP = point[2]
+            scale = pyramid[i][zP]
+            imgRow, imgCol = scale.shape
+
+            # get the adjusted size of the sigma used for the gaussian at the octave interval (the scaled sd*3) scaled the scale factor (1.5)
+            k = 2**(1/s)
+            currSD = k*sd
+            for i in range(zP):
+                currSD = math.sqrt((k*currSD)**2 - currSD**2)
+            
+            sigma = round(1.5 * 3*currSD)
+
+            # initialize orientation degree histogram divided into -180 ~ -171,-170 ~ 161,...,170~180 degrees
+            histo = [0] * 36
+
+            # for every point within the sigma raidus, add the orientation to the histogram
+            for x in range(-sigma, sigma + 1):
+                # make sure the point is within bounds to save computing time
+                if xP + x > 0 and xP + x < imgRow-1:
+                    for y in range(-sigma, sigma + 1):
+                        if yP + y > 0 and yP +y < imgCol-1:
+                            # assign a gradient magnitude and orientation (converting from -pi to pi radians to 0-360 degrees for bin) according to the paper
+                            gMag = math.sqrt((scale[x+1,y] - scale[x-1,y])**2 + (scale[x, y+1] - scale[x, y-1])**2)
+                            ori = np.arctan2(scale[x,y+1] - scale[x, y-1], scale[x+1,y] - scale[x-1,y])/math.pi * 180 + 180
+
+                            # the gaussian weight, the constant doesn't really matter because its relative
+                            weight = math.exp(-(x**2 + y**2)/(2*currSD**2)) 
+
+                            # get the bin index 
+                            bin = math.floor(ori/36)
+                            # in the rare case the orientation yields positive 180, change it so it doesn't break the bins
+                            if bin == 10:
+                                bin = 9
+
+                            # add the weighted magnitude to the bin
+                            histo[bin] += weight * gMag
+        
+            # record the maximum bin peak orientation, and any other orientations that are within 80% of the max peak
+            limPeak = max(histo) * 0.8
+            for i in range(len(histo)):
+                if histo[i] >= limPeak:
+                    # interpolate the orientation parabolically and add to the array of keypoints
+                    # [scaled x, scaled y, scale, octave #, orientation, response]
+                    oriKeys.append([xP,yP,zP, i, fitParabola(i, histo), scale[xP,yP]])
+
+    return oriKeys
+
+                            
+
+# fits a parabola based on three closest bins close to the input peak and returns the peak
+# based on https://ccrma.stanford.edu/~jos/sasp/Quadratic_Interpolation_Spectral_Peaks.html
+def fitParabola(binIndex, histo):
+    # get the right and left
+    centVal = 0 
+    leftVal = 0
+    rightVal = 0
+    if binIndex == 0:
+        centVal = histo[0]
+        leftVal = histo[35]
+        rightVal = hist[1]
+    elif binIndex == 35:
+        centVal = histo[35]
+        leftVal = histo[34]
+        rightVal = histo[0]
+    else:
+        centVal = histo[binIndex]
+        leftVal = histo[binIndex - 1]
+        rightVal = histo[binIndex + 1]
+    
+    # interpolate the index 
+    interloIndex = binIndex + 0.5 * (leftVal - rightVal)/(leftVal - 2 * centVal + rightVal)
+
+    # convert the index into degrees and readjust to -180 to 180 scale
+    return interloIndex * 36 - 180
+            
 
 # returns qualified keypoints that are localized, not low contrast, and not on an edge
 def findPyramidKeypoints(candidates, pyramid):
@@ -83,7 +172,7 @@ def findOctaveKeypoints(octCandidates, oct):
             funcV = oct[z][x,y] + np.dot(grad, offset)/2
             
             # if the function value is greater than or equal to 0.03, check to see if point is on edge
-            if funcV >= 0.03:
+            if abs(funcV) >= 0.03:
                 # calculate the trace and determinant based on 2x2 Hessian
                 trace = dxx + dyy
                 det = dxx*dyy - dxy**2
@@ -174,9 +263,6 @@ def gaussOctave(img, s, sd):
     # and convolve the original with kernels that are gradually incremented
     # until the blurring is effectively doubled, plus more for later use
 
-    ###############################################################################################
-    # WRITE MORE ABOUT WHY +2 MORE INTERVALS FOR LEARNING PURPOSES
-    ###############################################################################################
     for i in range(s+2):
         nInterval = convolve(img,  kernel(currSD))
         currSD = math.sqrt((k*currSD)**2 - currSD**2)
@@ -242,7 +328,7 @@ def convolve(img, filterArray):
 if __name__ == '__main__':
     if len(sys.argv) < 3:
         pic = os.getcwd() + "\\" + sys.argv[1]
-        ssExtremaDetect(pic)
+        sift(pic)
     else:
         print("Function requires only 1 picture")
         raise SystemExit
