@@ -18,6 +18,8 @@ def sift(imgPath):
     candidates = candidatePyramid(imgs)
     keypoints = findPyramidKeypoints(candidates, imgs)
     orientedKeys = assignPryaOri(keypoints, imgs, numInterval, sigma)
+    
+    print(len(orientedKeys))
 
 # assigns orientations to keypoints 
 def assignPryaOri(keypoints, pyramid, s, sd):
@@ -36,7 +38,8 @@ def assignPryaOri(keypoints, pyramid, s, sd):
             # get the adjusted size of the sigma used for the gaussian at the octave interval (the scaled sd*3) scaled the scale factor (1.5)
             k = 2**(1/s)
             currSD = k*sd
-            for i in range(zP):
+            # print(zP)
+            for m in range(zP):
                 currSD = math.sqrt((k*currSD)**2 - currSD**2)
             
             sigma = round(1.5 * 3*currSD)
@@ -68,11 +71,11 @@ def assignPryaOri(keypoints, pyramid, s, sd):
         
             # record the maximum bin peak orientation, and any other orientations that are within 80% of the max peak
             limPeak = max(histo) * 0.8
-            for i in range(len(histo)):
-                if histo[i] >= limPeak:
+            for k in range(len(histo)):
+                if histo[k] >= limPeak:
                     # interpolate the orientation parabolically and add to the array of keypoints
                     # [scaled x, scaled y, scale, octave #, orientation, response]
-                    oriKeys.append([xP,yP,zP, i, fitParabola(i, histo), scale[xP,yP]])
+                    oriKeys.append([xP,yP,zP, k, fitParabola(k, histo), scale[xP,yP]])
 
     return oriKeys
 
@@ -88,7 +91,7 @@ def fitParabola(binIndex, histo):
     if binIndex == 0:
         centVal = histo[0]
         leftVal = histo[35]
-        rightVal = hist[1]
+        rightVal = histo[1]
     elif binIndex == 35:
         centVal = histo[35]
         leftVal = histo[34]
