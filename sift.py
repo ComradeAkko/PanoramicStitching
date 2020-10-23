@@ -6,6 +6,10 @@ import numpy as np
 import sys
 import math
 import os
+
+######################################################################################################
+# are the keypoints found at candidatePyramid and orientation using the diffGaussPyramid?
+######################################################################################################
     
 # scale-space extrema detection
 def sift(imgPath):
@@ -14,14 +18,57 @@ def sift(imgPath):
     img = mpimg.imread(imgPath)
     img = grayScale(img)
     imgs = gaussPyramid(img, 4, numInterval, sigma)
-    imgs = diffGaussPyramid(imgs)
-    candidates = candidatePyramid(imgs)
-    keypoints = findPyramidKeypoints(candidates, imgs)
+    imgsDiff = diffGaussPyramid(imgs)
+    candidates = candidatePyramid(imgsDiff)
+    keypoints = findPyramidKeypoints(candidates, imgsDiff)
     orientedKeys = assignPryaOri(keypoints, imgs, numInterval, sigma)
-    
+    print(len(orientedKeys))
+    orientedKeys = removeDuplicates(orientedKeys)
     print(len(orientedKeys))
 
-# assigns orientations to keypoints 
+# generates descriptors from keypoints 
+def generateDescriptors(keypoints, pyramid, winWidth):
+    # create a 4x4x8 vector to store the descriptors (4=window width/length, 8=number of degree bins)
+    descriptors = np.zeros(shape=(6,6,8))
+
+    # keypoints in [scaled x, scaled y, scale, octave #, orientation, response] format
+    for kp in keypoints:
+        xP = kp[0]
+        yP = kp[1]
+        zP = kp[2]
+        oct = kp[3]
+        angle = kp[4]
+        cosAng = math.cos(math.radians(angle))
+        sinAng = math.sin(math.radians(angle))
+
+    return descriptors
+
+
+# remove duplicate keypoints
+def removeDuplicates(keypoints):
+    # sorting multiple attribute arrays: https://stackoverflow.com/questions/31942169/python-sort-array-of-arrays-by-multiple-conditions
+    sortKP = lambda x:(x[0], x[1], x[2], x[3], x[4], x[5])
+    keypoints.sort(key=sortKP)
+
+    # only take unique keypoints
+    unique = [keypoints[0]]
+
+    # compare all the keypoints to make sure none are duplicated
+    for nextKP in keypoints[1:]:
+        lastKP = unique[-1]
+        if  lastKP[0] != nextKP[0] or \
+            lastKP[1] != nextKP[1] or \
+            lastKP[2] != nextKP[2] or \
+            lastKP[3] != nextKP[3] or \
+            lastKP[4] != nextKP[4] or \
+            lastKP[5] != nextKP[5]:
+                unique.append(nextKP)
+    
+    return unique
+
+
+# assigns orientations to keypoints
+# returns keypoints in [scaled x, scaled y, scale, octave #, orientation, response] format
 def assignPryaOri(keypoints, pyramid, s, sd):
     oriKeys = []
     # for each keypoint array for each octave
@@ -75,7 +122,7 @@ def assignPryaOri(keypoints, pyramid, s, sd):
                 if histo[k] >= limPeak:
                     # interpolate the orientation parabolically and add to the array of keypoints
                     # [scaled x, scaled y, scale, octave #, orientation, response]
-                    oriKeys.append([xP,yP,zP, k, fitParabola(k, histo), scale[xP,yP]])
+                    oriKeys.append((xP,yP,zP, k, fitParabola(k, histo), scale[xP,yP]))
 
     return oriKeys
 
