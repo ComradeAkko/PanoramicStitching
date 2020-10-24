@@ -21,11 +21,12 @@ def showSpots(img0,siftVec):
             img[i,j,1] = img0[i,j,1]
             img[i,j,2] = img0[i,j,2]
     for i in range(len(siftVec)):
-        img[siftVec[0], siftVec[1], 0] = 1.0
-        img[siftVec[0], siftVec[1], 1] = 0
-        img[siftVec[0], siftVec[1], 2] = 0
+        img[siftVec[i][0], siftVec[i][1], 0] = 1.0
+        img[siftVec[i][0], siftVec[i][1], 1] = 0
+        img[siftVec[i][0], siftVec[i][1], 2] = 0
 
-    plt.imshow(img0)
+    imgplot = plt.imshow(img0)
+    plt.show()
 
 
 def compareTwo(img0, img1, siftVec0, siftVec1):
