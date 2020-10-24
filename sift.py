@@ -6,39 +6,124 @@ import numpy as np
 import sys
 import math
 import os
+import cv2
 
 ######################################################################################################
 # are the keypoints found at candidatePyramid and orientation using the diffGaussPyramid?
 ######################################################################################################
+
+def showSpots(img0,siftVec):
+    img0Row, img0Col, chan0 = img0.shape
+    img = np.zeros(shape=(img0Row, img0Col, chan0))
+    for i in range(img0Row):
+        for j in range(img0Col):
+            img[i,j,0] = img0[i,j,0]
+            img[i,j,1] = img0[i,j,1]
+            img[i,j,2] = img0[i,j,2]
+    for i in range(len(siftVec)):
+        img[siftVec[0], siftVec[1], 0] = 1.0
+        img[siftVec[0], siftVec[1], 1] = 0
+        img[siftVec[0], siftVec[1], 2] = 0
+
+    plt.imshow(img0)
+
+
+def compareTwo(img0, img1, siftVec0, siftVec1):
+    thres = 0.04
+
+    img0Row, img0Col, chan0 = img0.shape
+    img1Row, img1Col, chan1 = img1.shape
     
+    comp = np.zeros(shape=(img0Row + img1Row, max(img0Col,img1Col), 3))
+    for i in range(img0Row):
+        for j in range(img0Col):
+            for k in range(3):
+                comp[i,j,k] = img0[i,j,k]
+
+    for i in range(img1Row):
+        for j in range(img1Col):
+            for k in range(3):
+                comp[i+img0Row,j,k] = img1[i,j,k]
+    count = 0
+    af = 0
+    print("starting comparisons")
+    print(len(siftVec0))
+    print(len(siftVec1))
+    summer = len(siftVec0) * len(siftVec1)
+    for a in range(len(siftVec0)):
+        for b in range(len(siftVec1)):
+            d0 = siftVec0[a][2]
+            d1 = siftVec1[b][2]
+
+            eucD = 0
+            for c in range(len(d0)):
+                eucD += (d0[c] - d1[c])**2
+            eucD = math.sqrt(eucD)
+
+            af += 1
+            # print(af/summer)
+
+            if eucD < thres:
+                count += 1
+                x0 = siftVec0[a][0]
+                y0 = siftVec0[a][1]
+                x1 = siftVec0[b][0] + img0Row
+                y1 = siftVec0[a][1]
+
+                slope= (y1-y0)/(x1-x0)
+
+                currX = x0
+                currY = y0
+                for d in range(x1-x0):
+                    comp[x0+d, max(min(round(y0+slope*d),img0Row + img1Row-1), 0) , 0] = 1
+    s = "Found " + str(count) + " stuff"
+    print(count)
+    plt.imshow(comp)
+
+
 # scale-space extrema detection
-def sift(imgPath):
-    sigma = 0.5
-    numInterval = 3
-    img = mpimg.imread(imgPath)
-    img = grayScale(img)
-    imgs = gaussPyramid(img, 4, numInterval, sigma)
+def sift(img, sigma = 0.5, numInterval = 3):
+    imgGray = grayScale(img)
+    imgs = gaussPyramid(imgGray, 4, numInterval, sigma)
     imgsDiff = diffGaussPyramid(imgs)
     candidates = candidatePyramid(imgsDiff)
+    print("found candidates")
     keypoints = findPyramidKeypoints(candidates, imgsDiff)
     orientedKeys = assignPryaOri(keypoints, imgs, numInterval, sigma)
-    print(len(orientedKeys))
     orientedKeys = removeDuplicates(orientedKeys)
+    print("oriented keys")
     descript = generateDescriptors(orientedKeys, imgs)
-    print(len(orientedKeys))
+    print("added descriptors")
+    # final = realignKP(orientedKeys, descript)
+
+    return descript
+
+# realign the scaled keypoints back to the original dimensions and also associate a descriptor
+def realignKP(keypoints, descriptors):
+    aligned = []
+    for i in range(len(keypoints)):
+        octave = keypoints[i][3]
+        x = keypoints[i][0] * 2**octave
+        y = keypoints[i][1] * 2**octave
+        aligned.append((x,y,descriptors[i]))
+    
+    return aligned
+
 
 # generates descriptors from keypoints 
-def generateDescriptors(keypoints, pyramid, winWidth=16):
+def generateDescriptors(keypoints, pyramid, winWidth=16, thres = 0.2):
     # keypoints in [scaled x, scaled y, scale, octave #, orientation] format
     descriptors = []
+    sum = len(keypoints)
+    counter = 0
     for kp in keypoints:
         # create a windowWidth/4 x windowWidth/4 x 8 vector to store the descriptors (8=number of degree bins)
         # adding 2 to the number of windowWidth bins to account for boundary bins that will be removed later
         # bins are divided into -180~-136, -135~-91,...,270~314,315~360 degrees
-        descriptiveVec = np.zeros(shape=(winWidth/4,winWidth/4,8))
+        descriptiveVec = np.zeros(shape=(int(winWidth/4),int(winWidth/4),8))
 
         # create a windowWidth * windowWidth to calculate the magnitude and orientation for section of the sample patch
-        sampleWindow = np.zeros(shape=(winWidth+1, winWidth+1))
+        sampleWindow = np.empty(shape=(winWidth+1, winWidth+1), dtype = object)
         smoothedSamples = np.zeros(shape = (winWidth+2, winWidth+2, 8))
 
         # extract the position, scale, octave and orientation of the point 
@@ -50,12 +135,17 @@ def generateDescriptors(keypoints, pyramid, winWidth=16):
         cosine = math.cos(math.radians(angle))
         sine = math.sin(math.radians(angle))
 
+        counter += 1
+        print(counter/sum)
+
         # extract the gaussian where the keypoint comes from
-        scale = pyramid[octave][zP]
+        octi = pyramid[octave]
+
+        scale = octi[zP]
         imgRow, imgCol = scale.shape
     
         # weight the gaussian sigma as half the windowwidth
-        halfWidth = winWidth/2
+        halfWidth = int(winWidth/2)
         weightFac = -1/2 * 1/halfWidth**2
 
         # for every "point" record the partial magnitude and orientation to...
@@ -67,13 +157,9 @@ def generateDescriptors(keypoints, pyramid, winWidth=16):
                 
                 # only record if the rotated coordinates are within bounds
                 # also account for the later magnitude and orientation calculations
-                if xR < -1 or xR > imgRow or yR < -1 or yR > imgCol:
-                    sampleWindow[x+halfWidth, y+halfWidth] = ("NaN", 0, 0, 0)
+                if xR < 1 or xR > imgRow-2 or yR < 1 or yR > imgCol-2:
+                    sampleWindow[x+halfWidth, y+halfWidth] = (-1, 0, 0, 0)
                 else:
-                    # translate the rotation coordinates to the keypoint position
-                    xR += xP
-                    yR += yP
-
                     # assign the appropriate, partial bin coordinates
                     xBin = x + halfWidth - 0.5
                     yBin = y + halfWidth - 0.5
@@ -89,16 +175,20 @@ def generateDescriptors(keypoints, pyramid, winWidth=16):
                     binOri = ori/45
 
                     # record the adjusted magnitude, the orientation, and the bin coordinates
-                    sampleWindow[x+halfWidth, y+halfWidth] = (gMag, binOri, xBin, yBin)
+                    sampleWindow[x+halfWidth, y+halfWidth] = [gMag, binOri, xBin, yBin]
         
         # cycle through every sample pixel and use inverse trilinear interpolation to...
         # ...redistribute the magnitudes
         for i in range(winWidth+1):
             for j in range(winWidth+1):
-                gMag, binOri, xBin, yBin = sampleWindow[i,j]
+                # print(sampleWindow[i,j][0])
+                gMag = sampleWindow[i,j][0]
+                binOri = sampleWindow[i,j][1]
+                xBin = sampleWindow[i,j][2]
+                yBin = sampleWindow[i,j][3]
 
                 # make sure the sample is valid
-                if gMag != "NaN":
+                if gMag > 0:
                     # get the floor of the bins to extract the fractional proportion between bins
                     binFloor = math.floor(binOri)
                     xFloor = math.floor(xBin)
@@ -123,27 +213,35 @@ def generateDescriptors(keypoints, pyramid, winWidth=16):
                     c110 = c11 * binFrac
                     c111 = c11 * (1-binFrac)
 
-                    smoothedSamples[i,j,binFloor] += c000
-                    smoothedSamples[i,j,binFloor+1] += c001
-                    smoothedSamples[i,j+1,binFloor] += c010
-                    smoothedSamples[i,j+1,binFloor+1] += c011
-                    smoothedSamples[i+1,j,binFloor] += c100
-                    smoothedSamples[i+1,j,binFloor+1] += c101
-                    smoothedSamples[i+1,j+1,binFloor] += c110
-                    smoothedSamples[i+1,j+1,binFloor+1] += c111
+                    smoothedSamples[i,j,binFloor % 8] += c000
+                    smoothedSamples[i,j,(binFloor+1) % 8] += c001
+                    smoothedSamples[i,j+1,binFloor % 8] += c010
+                    smoothedSamples[i,j+1,(binFloor+1) % 8] += c011
+                    smoothedSamples[i+1,j,binFloor % 8] += c100
+                    smoothedSamples[i+1,j,(binFloor+1) % 8] += c101
+                    smoothedSamples[i+1,j+1,binFloor % 8] += c110
+                    smoothedSamples[i+1,j+1,(binFloor+1) % 8] += c111
 
         # sum up the smoothed samples into a more concentrated 4x4x8 array
-        for a in range(winWidth/4):
-            for b in range(winWidth/4):
+        # print(smoothedSamples)
+        for a in range(int(winWidth/4)):
+            for b in range(int(winWidth/4)):
                 for c in range(8):
-                    descriptiveVec[a,b,c]  +=  smoothedSamples[a+1,b+1,c] + \
-                                            smoothedSamples[a+2,b+1,c] + \
-                                            smoothedSamples[a+1,b+2,c] + \
-                                            smoothedSamples[a+2,b+2,c]
+                    descriptiveVec[a,b,c]  +=  smoothedSamples[a*4+1,b*4+1,c] + \
+                                            smoothedSamples[a*4+2,b*4+1,c] + \
+                                            smoothedSamples[a*4+1,b*4+2,c] + \
+                                            smoothedSamples[a*4+2,b*4+2,c]
+                    # adjust vector to threshold if larger than that
+                    if thres < descriptiveVec[a,b,c]:
+                        descriptiveVec[a,b,c] = thres
         
         descriptiveVec = descriptiveVec.flatten()
-        descriptiveVec /= np.max(descriptiveVec)
-        descriptors.append(descriptiveVec)
+        # print(descriptiveVec)
+        # if xBin == 0:
+            # print("alksdfja;ldsfjk")
+        if np.max(descriptiveVec) > 0:
+            descriptiveVec /= np.max(descriptiveVec)
+            descriptors.append((xP * 2**octave,y * 2**octave,descriptiveVec))
 
     return descriptors
 
@@ -151,7 +249,7 @@ def generateDescriptors(keypoints, pyramid, winWidth=16):
 # remove duplicate keypoints
 def removeDuplicates(keypoints):
     # sorting multiple attribute arrays: https://stackoverflow.com/questions/31942169/python-sort-array-of-arrays-by-multiple-conditions
-    sortKP = lambda x:(x[0], x[1], x[2], x[3], x[4], x[5])
+    sortKP = lambda x:(x[0], x[1], x[2], x[3], x[4])
     keypoints.sort(key=sortKP)
 
     # only take unique keypoints
@@ -164,9 +262,8 @@ def removeDuplicates(keypoints):
             lastKP[1] != nextKP[1] or \
             lastKP[2] != nextKP[2] or \
             lastKP[3] != nextKP[3] or \
-            lastKP[4] != nextKP[4] or \
-            lastKP[5] != nextKP[5]:
-                unique.append(nextKP)
+            lastKP[4] != nextKP[4]:
+            unique.append(nextKP)
     
     return unique
 
@@ -226,7 +323,7 @@ def assignPryaOri(keypoints, pyramid, s, sd):
                 if histo[k] >= limPeak:
                     # interpolate the orientation parabolically and add to the array of keypoints
                     # [scaled x, scaled y, scale, octave #, orientation]
-                    oriKeys.append((xP,yP,zP, k, fitParabola(k, histo)))
+                    oriKeys.append((xP,yP,zP, i, fitParabola(k, histo)))
 
     return oriKeys
 
@@ -480,9 +577,14 @@ def convolve(img, filterArray):
 
 # requires 1 path to the image
 if __name__ == '__main__':
-    if len(sys.argv) < 3:
-        pic = os.getcwd() + "\\" + sys.argv[1]
-        sift(pic)
+    if len(sys.argv) < 4:
+        pic0 = os.getcwd() + "\\" + sys.argv[1]
+        pic1 = os.getcwd() + "\\" + sys.argv[2]
+        img0 = mpimg.imread(pic0)
+        img1 = mpimg.imread(pic1)
+        showSpots(img0, sift(img0))
+
+        #compareTwo(img0, img1, sift(img0), sift(img1))
     else:
         print("Function requires only 1 picture")
         raise SystemExit
