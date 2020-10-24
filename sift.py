@@ -24,22 +24,126 @@ def sift(imgPath):
     orientedKeys = assignPryaOri(keypoints, imgs, numInterval, sigma)
     print(len(orientedKeys))
     orientedKeys = removeDuplicates(orientedKeys)
+    descript = generateDescriptors(orientedKeys, imgs)
     print(len(orientedKeys))
 
 # generates descriptors from keypoints 
-def generateDescriptors(keypoints, pyramid, winWidth):
-    # create a 4x4x8 vector to store the descriptors (4=window width/length, 8=number of degree bins)
-    descriptors = np.zeros(shape=(6,6,8))
-
-    # keypoints in [scaled x, scaled y, scale, octave #, orientation, response] format
+def generateDescriptors(keypoints, pyramid, winWidth=16):
+    # keypoints in [scaled x, scaled y, scale, octave #, orientation] format
+    descriptors = []
     for kp in keypoints:
+        # create a windowWidth/4 x windowWidth/4 x 8 vector to store the descriptors (8=number of degree bins)
+        # adding 2 to the number of windowWidth bins to account for boundary bins that will be removed later
+        # bins are divided into -180~-136, -135~-91,...,270~314,315~360 degrees
+        descriptiveVec = np.zeros(shape=(winWidth/4,winWidth/4,8))
+
+        # create a windowWidth * windowWidth to calculate the magnitude and orientation for section of the sample patch
+        sampleWindow = np.zeros(shape=(winWidth+1, winWidth+1))
+        smoothedSamples = np.zeros(shape = (winWidth+2, winWidth+2, 8))
+
+        # extract the position, scale, octave and orientation of the point 
         xP = kp[0]
         yP = kp[1]
         zP = kp[2]
-        oct = kp[3]
+        octave = kp[3]
         angle = kp[4]
-        cosAng = math.cos(math.radians(angle))
-        sinAng = math.sin(math.radians(angle))
+        cosine = math.cos(math.radians(angle))
+        sine = math.sin(math.radians(angle))
+
+        # extract the gaussian where the keypoint comes from
+        scale = pyramid[octave][zP]
+        imgRow, imgCol = scale.shape
+    
+        # weight the gaussian sigma as half the windowwidth
+        halfWidth = winWidth/2
+        weightFac = -1/2 * 1/halfWidth**2
+
+        # for every "point" record the partial magnitude and orientation to...
+        # ...later be sorted into different bins
+        for x in range(-halfWidth, halfWidth+1):
+            for y in range(-halfWidth, halfWidth+1):
+                xR = round(x * cosine - y * sine + xP)
+                yR = round(x * sine + y * cosine + yP)
+                
+                # only record if the rotated coordinates are within bounds
+                # also account for the later magnitude and orientation calculations
+                if xR < -1 or xR > imgRow or yR < -1 or yR > imgCol:
+                    sampleWindow[x+halfWidth, y+halfWidth] = ("NaN", 0, 0, 0)
+                else:
+                    # translate the rotation coordinates to the keypoint position
+                    xR += xP
+                    yR += yP
+
+                    # assign the appropriate, partial bin coordinates
+                    xBin = x + halfWidth - 0.5
+                    yBin = y + halfWidth - 0.5
+
+                    # assign a gradient magnitude and orientation, while adjusting the orientation to the rotated window
+                    gMag = math.sqrt((scale[xR+1,yR] - scale[xR-1,yR])**2 + (scale[xR, yR+1] - scale[xR, yR-1])**2)
+                    ori = np.arctan2(scale[xR,yR+1] - scale[xR, yR-1], scale[xR+1,yR] - scale[xR-1,yR])/math.pi * 180 - angle + 180
+
+                    # weight the magnitude by its distance from the keypoint
+                    gMag *= math.exp(weightFac * (x**2 + y**2))
+
+                    # get the partial bin # of the orientation
+                    binOri = ori/45
+
+                    # record the adjusted magnitude, the orientation, and the bin coordinates
+                    sampleWindow[x+halfWidth, y+halfWidth] = (gMag, binOri, xBin, yBin)
+        
+        # cycle through every sample pixel and use inverse trilinear interpolation to...
+        # ...redistribute the magnitudes
+        for i in range(winWidth+1):
+            for j in range(winWidth+1):
+                gMag, binOri, xBin, yBin = sampleWindow[i,j]
+
+                # make sure the sample is valid
+                if gMag != "NaN":
+                    # get the floor of the bins to extract the fractional proportion between bins
+                    binFloor = math.floor(binOri)
+                    xFloor = math.floor(xBin)
+                    yFloor = math.floor(yBin)
+
+                    binFrac = binOri - binFloor
+                    xFrac = xBin - xFloor
+                    yFrac = yBin - yFloor
+
+                    c0 = gMag * xFrac
+                    c1 = gMag * (1-xFrac)
+                    c00 = c0 * yFrac
+                    c01 = c0 * (1-yFrac)
+                    c10 = c1 * yFrac
+                    c11 = c1 * (1-yFrac)
+                    c000 = c00 * binFrac
+                    c001 = c00 * (1-binFrac)
+                    c010 = c01 * binFrac
+                    c011 = c01 * (1-binFrac)
+                    c100 = c10 * binFrac
+                    c101 = c10 * (1-binFrac)
+                    c110 = c11 * binFrac
+                    c111 = c11 * (1-binFrac)
+
+                    smoothedSamples[i,j,binFloor] += c000
+                    smoothedSamples[i,j,binFloor+1] += c001
+                    smoothedSamples[i,j+1,binFloor] += c010
+                    smoothedSamples[i,j+1,binFloor+1] += c011
+                    smoothedSamples[i+1,j,binFloor] += c100
+                    smoothedSamples[i+1,j,binFloor+1] += c101
+                    smoothedSamples[i+1,j+1,binFloor] += c110
+                    smoothedSamples[i+1,j+1,binFloor+1] += c111
+
+        # sum up the smoothed samples into a more concentrated 4x4x8 array
+        for a in range(winWidth/4):
+            for b in range(winWidth/4):
+                for c in range(8):
+                    descriptiveVec[a,b,c]  +=  smoothedSamples[a+1,b+1,c] + \
+                                            smoothedSamples[a+2,b+1,c] + \
+                                            smoothedSamples[a+1,b+2,c] + \
+                                            smoothedSamples[a+2,b+2,c]
+        
+        descriptiveVec = descriptiveVec.flatten()
+        descriptiveVec /= np.max(descriptiveVec)
+        descriptors.append(descriptiveVec)
 
     return descriptors
 
@@ -121,8 +225,8 @@ def assignPryaOri(keypoints, pyramid, s, sd):
             for k in range(len(histo)):
                 if histo[k] >= limPeak:
                     # interpolate the orientation parabolically and add to the array of keypoints
-                    # [scaled x, scaled y, scale, octave #, orientation, response]
-                    oriKeys.append((xP,yP,zP, k, fitParabola(k, histo), scale[xP,yP]))
+                    # [scaled x, scaled y, scale, octave #, orientation]
+                    oriKeys.append((xP,yP,zP, k, fitParabola(k, histo)))
 
     return oriKeys
 
