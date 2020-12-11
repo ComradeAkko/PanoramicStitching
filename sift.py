@@ -80,7 +80,7 @@ def compareTwo(img0, img1, siftVec0, siftVec1, threshold = 1.6):
                 for d in range(y1-y0):
                     comp[max(min(round(x0+slope*d), max(img0Row,img1Row)),0), y0+d, 0] = 1
     s = "Found " + str(count) + " stuff"
-    print(count)
+    print(s)
     eucList.sort()
     print(eucList[:50])
     print(max(eucList))
