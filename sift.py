@@ -17,39 +17,42 @@ def showSpots(img0,siftVec):
     img = np.zeros(shape=(img0Row, img0Col, chan0))
     for i in range(img0Row):
         for j in range(img0Col):
-            img[i,j,0] = img0[i,j,0]
-            img[i,j,1] = img0[i,j,1]
-            img[i,j,2] = img0[i,j,2]
+            img[i,j,0] = img0[i,j,0]/255
+            img[i,j,1] = img0[i,j,1]/255
+            img[i,j,2] = img0[i,j,2]/255    
+    imgplot = plt.imshow(img)
+    plt.show()
     for i in range(len(siftVec)):
-        img[siftVec[i][0], siftVec[i][1], 0] = 1.0
-        img[siftVec[i][0], siftVec[i][1], 1] = 0
-        img[siftVec[i][0], siftVec[i][1], 2] = 0
+        for j in range(1):
+            for k in range(1):
+                img[min(max((siftVec[i][0]+j), 0), img0Row-1), min(max((siftVec[i][1]+k), 0), img0Col-1), 0] = 1
+                img[min(max((siftVec[i][0]+j), 0), img0Row-1), min(max((siftVec[i][1]+k), 0), img0Col-1), 1] = 0
+                img[min(max((siftVec[i][0]+j), 0), img0Row-1), min(max((siftVec[i][1]+k), 0), img0Col-1), 2] = 0
 
-    imgplot = plt.imshow(img0)
+    imgplot = plt.imshow(img)
     plt.show()
 
-
-def compareTwo(img0, img1, siftVec0, siftVec1):
-    thres = 0.04
-
+# compares the sift points of two images based on a threshold
+def compareTwo(img0, img1, siftVec0, siftVec1, threshold = 1.6):
     img0Row, img0Col, chan0 = img0.shape
     img1Row, img1Col, chan1 = img1.shape
     
-    comp = np.zeros(shape=(img0Row + img1Row, max(img0Col,img1Col), 3))
+    comp = np.zeros(shape=(max(img0Row, img1Row), img0Col + img1Col, 3))
     for i in range(img0Row):
         for j in range(img0Col):
             for k in range(3):
-                comp[i,j,k] = img0[i,j,k]
+                comp[i,j,k] = img0[i,j,k]/255
 
     for i in range(img1Row):
         for j in range(img1Col):
             for k in range(3):
-                comp[i+img0Row,j,k] = img1[i,j,k]
+                comp[i,j+img0Col,k] = img1[i,j,k]/255
     count = 0
     af = 0
     print("starting comparisons")
     print(len(siftVec0))
     print(len(siftVec1))
+    eucList = []
     summer = len(siftVec0) * len(siftVec1)
     for a in range(len(siftVec0)):
         for b in range(len(siftVec1)):
@@ -60,26 +63,29 @@ def compareTwo(img0, img1, siftVec0, siftVec1):
             for c in range(len(d0)):
                 eucD += (d0[c] - d1[c])**2
             eucD = math.sqrt(eucD)
+            eucList.append(eucD)
 
             af += 1
             # print(af/summer)
 
-            if eucD < thres:
+            if eucD < threshold:
                 count += 1
                 x0 = siftVec0[a][0]
                 y0 = siftVec0[a][1]
-                x1 = siftVec0[b][0] + img0Row
-                y1 = siftVec0[a][1]
+                x1 = siftVec1[b][0]
+                y1 = siftVec1[b][1] + img0Col
 
-                slope= (y1-y0)/(x1-x0)
+                slope= (x1-x0)/(y1-y0)
 
-                currX = x0
-                currY = y0
-                for d in range(x1-x0):
-                    comp[x0+d, max(min(round(y0+slope*d),img0Row + img1Row-1), 0) , 0] = 1
+                for d in range(y1-y0):
+                    comp[max(min(round(x0+slope*d), max(img0Row,img1Row)),0), y0+d, 0] = 1
     s = "Found " + str(count) + " stuff"
     print(count)
+    eucList.sort()
+    print(eucList[:50])
+    print(max(eucList))
     plt.imshow(comp)
+    plt.show()
 
 
 # scale-space extrema detection
@@ -89,13 +95,12 @@ def sift(img, sigma = 0.5, numInterval = 3):
     imgsDiff = diffGaussPyramid(imgs)
     candidates = candidatePyramid(imgsDiff)
     print("found candidates")
-    keypoints = findPyramidKeypoints(candidates, imgsDiff)
+    keypoints = findPyramidKeypoints(candidates, imgsDiff, 2.5, 3)
     orientedKeys = assignPryaOri(keypoints, imgs, numInterval, sigma)
     orientedKeys = removeDuplicates(orientedKeys)
     print("oriented keys")
     descript = generateDescriptors(orientedKeys, imgs)
     print("added descriptors")
-    # final = realignKP(orientedKeys, descript)
 
     return descript
 
@@ -112,7 +117,7 @@ def realignKP(keypoints, descriptors):
 
 
 # generates descriptors from keypoints 
-def generateDescriptors(keypoints, pyramid, winWidth=16, thres = 0.2):
+def generateDescriptors(keypoints, pyramid, winWidth=16, thres = 1000):
     # keypoints in [scaled x, scaled y, scale, octave #, orientation] format
     descriptors = []
     sum = len(keypoints)
@@ -137,7 +142,8 @@ def generateDescriptors(keypoints, pyramid, winWidth=16, thres = 0.2):
         sine = math.sin(math.radians(angle))
 
         counter += 1
-        print(counter/sum)
+        ## IMPORTANT
+        # print(counter/sum)
 
         # extract the gaussian where the keypoint comes from
         octi = pyramid[octave]
@@ -182,7 +188,6 @@ def generateDescriptors(keypoints, pyramid, winWidth=16, thres = 0.2):
         # ...redistribute the magnitudes
         for i in range(winWidth+1):
             for j in range(winWidth+1):
-                # print(sampleWindow[i,j][0])
                 gMag = sampleWindow[i,j][0]
                 binOri = sampleWindow[i,j][1]
                 xBin = sampleWindow[i,j][2]
@@ -224,25 +229,35 @@ def generateDescriptors(keypoints, pyramid, winWidth=16, thres = 0.2):
                     smoothedSamples[i+1,j+1,(binFloor+1) % 8] += c111
 
         # sum up the smoothed samples into a more concentrated 4x4x8 array
-        # print(smoothedSamples)
         for a in range(int(winWidth/4)):
             for b in range(int(winWidth/4)):
                 for c in range(8):
                     descriptiveVec[a,b,c]  +=  smoothedSamples[a*4+1,b*4+1,c] + \
                                             smoothedSamples[a*4+2,b*4+1,c] + \
+                                            smoothedSamples[a*4+3,b*4+1,c] + \
+                                            smoothedSamples[a*4+4,b*4+1,c] + \
                                             smoothedSamples[a*4+1,b*4+2,c] + \
-                                            smoothedSamples[a*4+2,b*4+2,c]
+                                            smoothedSamples[a*4+2,b*4+2,c] + \
+                                            smoothedSamples[a*4+3,b*4+2,c] + \
+                                            smoothedSamples[a*4+4,b*4+2,c] + \
+                                            smoothedSamples[a*4+1,b*4+3,c] + \
+                                            smoothedSamples[a*4+2,b*4+3,c] + \
+                                            smoothedSamples[a*4+3,b*4+3,c] + \
+                                            smoothedSamples[a*4+4,b*4+3,c] + \
+                                            smoothedSamples[a*4+1,b*4+4,c] + \
+                                            smoothedSamples[a*4+2,b*4+4,c] + \
+                                            smoothedSamples[a*4+3,b*4+4,c] + \
+                                            smoothedSamples[a*4+4,b*4+4,c]
                     # adjust vector to threshold if larger than that
                     if thres < descriptiveVec[a,b,c]:
                         descriptiveVec[a,b,c] = thres
-        
+                    
         descriptiveVec = descriptiveVec.flatten()
-        # print(descriptiveVec)
-        # if xBin == 0:
-            # print("alksdfja;ldsfjk")
+        
+        # if the descriptor is positive, realign the coordinates to max scale and record descriptor
         if np.max(descriptiveVec) > 0:
             descriptiveVec /= np.max(descriptiveVec)
-            descriptors.append((xP * 2**octave,y * 2**octave,descriptiveVec))
+            descriptors.append((xP * 2**octave,yP * 2**octave,descriptiveVec))
 
     return descriptors
 
@@ -287,7 +302,6 @@ def assignPryaOri(keypoints, pyramid, s, sd):
             # get the adjusted size of the sigma used for the gaussian at the octave interval (the scaled sd*3) scaled the scale factor (1.5)
             k = 2**(1/s)
             currSD = k*sd
-            # print(zP)
             for m in range(zP):
                 currSD = math.sqrt((k*currSD)**2 - currSD**2)
             
@@ -301,19 +315,18 @@ def assignPryaOri(keypoints, pyramid, s, sd):
                 # make sure the point is within bounds to save computing time
                 if xP + x > 0 and xP + x < imgRow-1:
                     for y in range(-sigma, sigma + 1):
-                        if yP + y > 0 and yP +y < imgCol-1:
+                        if yP + y > 0 and yP + y < imgCol-1:
+                            currX = xP + x
+                            currY = yP + y
                             # assign a gradient magnitude and orientation (converting from -pi to pi radians to 0-360 degrees for bin) according to the paper
-                            gMag = math.sqrt((scale[x+1,y] - scale[x-1,y])**2 + (scale[x, y+1] - scale[x, y-1])**2)
-                            ori = np.arctan2(scale[x,y+1] - scale[x, y-1], scale[x+1,y] - scale[x-1,y])/math.pi * 180 + 180
+                            gMag = math.sqrt((scale[currX+1,currY] - scale[currX-1,currY])**2 + (scale[currX, currY+1] - scale[currX, currY-1])**2)
+                            ori = np.arctan2(scale[currX,currY+1] - scale[currX, currY-1], scale[currX+1,currY] - scale[currX-1,currY])/math.pi * 180 + 180
 
                             # the gaussian weight, the constant doesn't really matter because its relative
                             weight = math.exp(-(x**2 + y**2)/(2*currSD**2)) 
 
                             # get the bin index 
-                            bin = math.floor(ori/36)
-                            # in the rare case the orientation yields positive 180, change it so it doesn't break the bins
-                            if bin == 10:
-                                bin = 9
+                            bin = math.floor(ori/10)
 
                             # add the weighted magnitude to the bin
                             histo[bin] += weight * gMag
@@ -354,14 +367,14 @@ def fitParabola(binIndex, histo):
     interloIndex = binIndex + 0.5 * (leftVal - rightVal)/(leftVal - 2 * centVal + rightVal)
 
     # convert the index into degrees and readjust to -180 to 180 scale
-    return interloIndex * 36 - 180
+    return  interloIndex * 10 - 180
             
 
 # returns qualified keypoints that are localized, not low contrast, and not on an edge
-def findPyramidKeypoints(candidates, pyramid):
+def findPyramidKeypoints(candidates, pyramid, edgeThres = 2.5, eigenRatio = 3):
     pyraKeys = []
     for i in range(len(pyramid)):
-        pyraKeys.append(findOctaveKeypoints(candidates[i], pyramid[i]))
+        pyraKeys.append(findOctaveKeypoints(candidates[i], pyramid[i], edgeThres, eigenRatio))
 
     return pyraKeys
 
@@ -370,10 +383,13 @@ def findPyramidKeypoints(candidates, pyramid):
 
 # heavy guidance from the original paper and https://dsp.stackexchange.com/questions/10403/sift-taylor-expansion
 # for additional explanations
-def findOctaveKeypoints(octCandidates, oct):
+def findOctaveKeypoints(octCandidates, oct, edgeThres, eigenRatio):
     keypoints = []
 
     # cycle through the candidates of the octave
+    conv = 0
+    edged = 0
+    final = 0
     for cand in octCandidates:
         x = cand[0]
         y = cand[1]
@@ -382,6 +398,7 @@ def findOctaveKeypoints(octCandidates, oct):
         imgRow, imgCol = oct[0].shape 
 
         outofBounds = False
+        converged = False
 
         # iterate at most five times to try to converge to an offset
         for i in range(5):
@@ -406,6 +423,7 @@ def findOctaveKeypoints(octCandidates, oct):
 
             # if the offset is less than 0.5 in all dimensions, break because the keypoint is ok
             if offset[0] < 0.5 and offset[1] < 0.5 and offset[2] < 0.5:
+                converged = True
                 break
             
             # update the keypoint position
@@ -418,13 +436,20 @@ def findOctaveKeypoints(octCandidates, oct):
                 outofBounds = True
                 break
         
-        # if the offset isn't out of bounds continue to further checks
-        if not outofBounds:
+        # if the offset isn't out of bounds continue to further checks AND
+        # ...if the point converged within the maximum number of iterations
+        if not outofBounds and converged:
             # get the function value at the extrenum and check for low contrast
             funcV = oct[z][x,y] + np.dot(grad, offset)/2
+            conv += 1
             
             # if the function value is greater than or equal to 0.03, check to see if point is on edge
-            if abs(funcV) >= 0.03:
+
+            # paper correct thres = 0.03
+            # numbers-wise correct thres = 2.5
+            # visually correct = 5.0
+            if abs(funcV) >= edgeThres:
+                edged += 1
                 # calculate the trace and determinant based on 2x2 Hessian
                 trace = dxx + dyy
                 det = dxx*dyy - dxy**2
@@ -432,12 +457,21 @@ def findOctaveKeypoints(octCandidates, oct):
                 # if the determinant is positive, continue (non-positive means det is point is not extrenum
                 # as the curvature has different sides)
                 if det > 0:
+
                     # check the ratio principal curvature to see if it is below a threshold (not an edge)
-                    if trace**2/det < (10+1)**2/10:
-                        
+
+                    # paper correct thres = 10
+                    # numbers-wise correct threshold = 3
+                    if trace**2/det < (eigenRatio+1)**2/eigenRatio:
+                        final += 1
                         # add keypoint if it has cleared all conditions
                         keypoints.append([x,y,z])
 
+    # Number of candidates for testing purposes
+    # print("Oct candidates " + str(len(octCandidates)))
+    # print("Converged candidates " + str(conv))
+    # print("Edged candidates " + str(edged))
+    # print("Final candidates " + str(final))
     return keypoints
 
 # returns the total keypoint candidates of the DoG pyramid
@@ -464,7 +498,9 @@ def candidateOctave(oct):
                 currMn =  np.min(oct[i][j-1:j+2, k-1:k+2])
 
                 # if the center pixel is the unchallenged maximum/minimum in above, lower and current layers, add it to candidates
-                if max([aboveMx, belowMx, currMx]) == oct[i][j,k] or min([aboveMn, belowMn, currMn]) == oct[i][j,k]:
+                if (currMx == oct[i][j,k] and max(aboveMx, belowMx) < oct[i][j,k]) or \
+                    (currMn == oct[i][j,k] and min(aboveMn, belowMn) > oct[i][j,k]):
+                    
                     candidates.append([j,k,i])
     return candidates
     
@@ -585,7 +621,7 @@ if __name__ == '__main__':
         img1 = mpimg.imread(pic1)
         showSpots(img0, sift(img0))
 
-        #compareTwo(img0, img1, sift(img0), sift(img1))
+        compareTwo(img0, img1, sift(img0), sift(img1))
     else:
         print("Function requires only 1 picture")
         raise SystemExit
